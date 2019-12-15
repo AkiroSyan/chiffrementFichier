@@ -53,27 +53,6 @@ func unpad(src []byte) ([]byte, error) {
 Prend en paramètre une clé et un tableau de bytes et retourne un tableau de bytes chiffré par AES
 avec la clé donnée.
 */
-/*
-func encrypt(key []byte, data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	msg := pad(data)                                   // Alignement du tableau sur la taille d'un bloc AES
-	ciphertext := make([]byte, aes.BlockSize+len(msg)) // Création du tableau qui contiendra les données chiffrées
-	iv := ciphertext[:aes.BlockSize]                   // Génération du vecteur d'initialisation
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, err
-	}
-
-	// Chiffrement des données
-	cfb := cipher.NewCFBEncrypter(block, iv)
-	cfb.XORKeyStream(ciphertext[aes.BlockSize:], msg)
-	return ciphertext, nil
-}
-*/
-
 func encrypt(key []byte, iv []byte, data []byte, output []byte, blockIndex int, lastBlock bool) {
 	fmt.Printf("Encrypting block %d\n", blockIndex)
 	block, _ := aes.NewCipher(key)
@@ -100,52 +79,6 @@ func encrypt(key []byte, iv []byte, data []byte, output []byte, blockIndex int, 
 Prend en paramètre une clé et un tableau de bytes et retourne un tableau de bytes déchiffré par AES
 avec la clé donnée.
 */
-/*
-func decrypt(key []byte, data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	// Si la taille n'est pas un multiple de la taille de bloc AES, on ne peut pas déchiffrer
-	if (len(data) % aes.BlockSize) != 0 {
-		return nil, errors.New("blocksize must be multipe of decoded message length")
-	}
-
-	// On récupère l'IV et le message
-	iv := data[:aes.BlockSize]
-	msg := data[aes.BlockSize:]
-
-	// On déchiffre
-	cfb := cipher.NewCFBDecrypter(block, iv)
-	cfb.XORKeyStream(msg, msg)
-
-	// On supprime l'alignement du message
-	unpadMsg, err := unpad(msg)
-	if err != nil {
-		return nil, err
-	}
-
-	return unpadMsg, nil
-}
-*/
-
-/*
-func decryptGoEnd(key []byte, iv []byte, data []byte, output []byte, blockIndex int) {
-	block, _ := aes.NewCipher(key)
-
-	dataToDecrypt := data[:blockIndex*SizePerRoutine]
-	decryptedData := make([]byte, len(dataToDecrypt))
-
-	cfb := cipher.NewCFBDecrypter(block, iv)
-	cfb.XORKeyStream(decryptedData, dataToDecrypt)
-
-	for i, elt := range decryptedData {
-		output[i + aes.BlockSize + blockIndex*SizePerRoutine] = elt
-	}
-}
-*/
-
 func decrypt(key []byte, iv []byte, data []byte, output []byte, blockIndex int, lastBlock bool) {
 	fmt.Printf("Decrypting block %d\n", blockIndex)
 	block, _ := aes.NewCipher(key)
@@ -182,18 +115,6 @@ func (encrypter *dataEncrypter) SetStringKey(key string) {
 func (encrypter *dataEncrypter) SetData(data []byte) {
 	encrypter.data = data
 }
-
-/*
-func (this *dataEncrypter) Encrypt() error {
-	this.decryptedData = this.data
-	this.data = nil
-
-	var err error
-	this.encryptedData, err = encrypt(this.key, this.decryptedData)
-
-	return err
-}
-*/
 
 func (encrypter *dataEncrypter) Encrypt() error {
 	encrypter.decryptedData = encrypter.data
@@ -245,18 +166,6 @@ func (encrypter *dataEncrypter) Encrypt() error {
 	return nil
 }
 
-/*
-func (this *dataEncrypter) Decrypt() error {
-	this.encryptedData = this.data
-	this.data = nil
-
-	var err error
-	this.decryptedData, err = decrypt(this.key, this.encryptedData)
-
-	return err
-}
-*/
-
 func (encrypter *dataEncrypter) Decrypt() error {
 	encrypter.encryptedData = encrypter.data
 	encrypter.data = nil
@@ -277,6 +186,7 @@ func (encrypter *dataEncrypter) Decrypt() error {
 	indexChan := make(chan int, totalRoutinesNeeded)
 	var wg sync.WaitGroup
 
+	// On déchiffre d'abord le premier bloc
 	go decrypt(encrypter.key, iv, data, result, totalRoutinesNeeded, true)
 
 	wg.Add(MaxSimultaneousGoroutines)
