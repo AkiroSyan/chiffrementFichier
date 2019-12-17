@@ -1,4 +1,4 @@
-package dataAESEncrypter
+package dataAesEncrypter
 
 import (
 	"bytes"
@@ -59,20 +59,15 @@ func encrypt(key []byte, iv []byte, data []byte, output []byte, blockIndex int, 
 
 	var dataToEncrypt []byte
 
+	cfb := cipher.NewCFBEncrypter(block, iv)
 	if lastBlock {
 		dataToEncrypt = data[blockIndex*SizePerRoutine:]
+		cfb.XORKeyStream(output[aes.BlockSize+blockIndex*SizePerRoutine:], dataToEncrypt)
 	} else {
 		dataToEncrypt = data[blockIndex*SizePerRoutine : (blockIndex+1)*SizePerRoutine]
+		cfb.XORKeyStream(output[aes.BlockSize+blockIndex*SizePerRoutine:aes.BlockSize+(blockIndex+1)*SizePerRoutine], dataToEncrypt)
 	}
 
-	cipherText := make([]byte, len(dataToEncrypt))
-
-	cfb := cipher.NewCFBEncrypter(block, iv)
-	cfb.XORKeyStream(cipherText, dataToEncrypt)
-
-	for i, elt := range cipherText {
-		output[i+aes.BlockSize+blockIndex*SizePerRoutine] = elt
-	}
 }
 
 /*
@@ -85,20 +80,15 @@ func decrypt(key []byte, iv []byte, data []byte, output []byte, blockIndex int, 
 
 	var dataToDecrypt []byte
 
+	cfb := cipher.NewCFBDecrypter(block, iv)
 	if lastBlock {
 		dataToDecrypt = data[blockIndex*SizePerRoutine:]
+		cfb.XORKeyStream(output[blockIndex*SizePerRoutine:], dataToDecrypt)
 	} else {
 		dataToDecrypt = data[blockIndex*SizePerRoutine : (blockIndex+1)*SizePerRoutine]
+		cfb.XORKeyStream(output[blockIndex*SizePerRoutine:(blockIndex+1)*SizePerRoutine], dataToDecrypt)
 	}
 
-	decryptedData := make([]byte, len(dataToDecrypt))
-
-	cfb := cipher.NewCFBDecrypter(block, iv)
-	cfb.XORKeyStream(decryptedData, dataToDecrypt)
-
-	for i, elt := range decryptedData {
-		output[blockIndex*SizePerRoutine+i] = elt
-	}
 }
 
 func (encrypter *dataEncrypter) SetKey(key []byte) {
@@ -128,16 +118,19 @@ func (encrypter *dataEncrypter) Encrypt() error {
 		return err
 	}
 
-	totalRoutinesNeeded := int(math.Ceil(float64(len(data))/SizePerRoutine)) - 1
+	totalRoutinesNeeded := int(math.Ceil(float64(len(data))/SizePerRoutine)) - 1 // number of routines needed (excepted for the last one)
 
 	indexChan := make(chan int, totalRoutinesNeeded)
 	var wg sync.WaitGroup
 
-	// On chiffre le dernier bloc d'abord
-	go encrypt(encrypter.key, iv, data, result, totalRoutinesNeeded, true)
+	wg.Add(MaxSimultaneousGoroutines + 1)
+	// On chiffre le dernier bloc d'abord : special encoding for last block since it needs extra care for slices
+	go func() {
+		encrypt(encrypter.key, iv, data, result, totalRoutinesNeeded, true)
+		wg.Done()
+	}()
 
-	wg.Add(MaxSimultaneousGoroutines)
-
+	// starts MaMaxSimultaneousGoroutinesx at the same time stopping when every job is done
 	for i := 0; i < MaxSimultaneousGoroutines; i++ {
 		go func() {
 			for {
@@ -153,6 +146,7 @@ func (encrypter *dataEncrypter) Encrypt() error {
 		}()
 	}
 
+	// add indicies to the queue (channel)
 	for i := 0; i < totalRoutinesNeeded; i++ {
 		indexChan <- i
 	}
@@ -186,10 +180,13 @@ func (encrypter *dataEncrypter) Decrypt() error {
 	indexChan := make(chan int, totalRoutinesNeeded)
 	var wg sync.WaitGroup
 
-	// On déchiffre d'abord le premier bloc
-	go decrypt(encrypter.key, iv, data, result, totalRoutinesNeeded, true)
+	wg.Add(MaxSimultaneousGoroutines + 1)
 
-	wg.Add(MaxSimultaneousGoroutines)
+	// On déchiffre d'abord le dernier bloc
+	go func() {
+		decrypt(encrypter.key, iv, data, result, totalRoutinesNeeded, true)
+		wg.Done()
+	}()
 
 	for i := 0; i < MaxSimultaneousGoroutines; i++ {
 		go func() {
